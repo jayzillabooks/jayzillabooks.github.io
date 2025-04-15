@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>U.S. GDP Growth (2022–2024) Choropleth Map</title>
+  
+  <link rel="shortcut icon" type="image/x-icon" href="docs/images/favicon.ico" />
+
+  <!-- Leaflet CSS and JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- Papa Parse (for CSV parsing) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+  
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    header {
+      text-align: center;
+      padding: 1em;
+      background-color: #f4f4f4;
+      border-bottom: 1px solid #ccc;
+      margin-bottom: 20px;
+    }
+    header h1 {
+      margin: 0.5em 0;
+      font-size: 1.8em;
+      color: #333;
+    }
+    header p {
+      margin: 0.5em 0;
+      font-size: 1.1em;
+      color: #555;
+    }
+    #map {
+      width: 800px;
+      height: 500px;
+      margin: 0 auto;
+      display: block;
+    }
+    .info {
+      padding: 6px 8px;
+      font: 14px/16px Arial, Helvetica, sans-serif;
+      background: rgba(255,255,255,0.8);
+      box-shadow: 0 0 15px rgba(0,0,0,0.2);
+      border-radius: 5px;
+    }
+    .info h4 {
+      margin: 0 0 5px;
+      color: #777;
+    }
+    .legend {
+      text-align: left;
+      line-height: 18px;
+      color: #555;
+    }
+    .legend i {
+      width: 18px;
+      height: 18px;
+      float: left;
+      margin-right: 8px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Page Header with Title -->
+  <header>
+    <h1>U.S. GDP Growth (2022–2024)</h1>
+    <!-- Updated line 73 as requested -->
+    <p>Interactive Choropleth Map using Diverging Color Scheme</p>
+  </header>
+
+  <!-- Map Container -->
+  <div id="map"></div>
+
+  <!-- Include the GeoJSON data (us-states.js should define the global variable statesData) -->
+  <script type="text/javascript" src="us-states.js"></script>
+
+  <script type="text/javascript">
+    // --- Raw CSV Data for GDP ---
+    const rawCSV = `State,GDP2022,GDP2024
+Alabama,220000,232000
+Alaska,48000,50000
+Arizona,390000,400000
+Arkansas,115000,120000
+California,2800000,3000000
+Colorado,340000,350000
+Connecticut,240000,250000
+Delaware,68000,70000
+District of Columbia,190000,200000
+Florida,1050000,1100000
+Georgia,580000,600000
+Hawaii,90000,95000
+Idaho,77000,80000
+Illinois,980000,1000000
+Indiana,290000,300000
+Iowa,145000,150000
+Kansas,135000,140000
+Kentucky,225000,230000
+Louisiana,205000,210000
+Maine,73000,75000
+Maryland,440000,450000
+Massachusetts,780000,800000
+Michigan,490000,500000
+Minnesota,395000,400000
+Mississippi,98000,100000
+Missouri,440000,450000
+Montana,38000,40000
+Nebraska,107000,110000
+Nevada,175000,180000
+New Hampshire,79000,80000
+New Jersey,880000,900000
+New Mexico,74000,75000
+New York,2150000,2200000
+North Carolina,680000,700000
+North Dakota,49000,50000
+Ohio,790000,800000
+Oklahoma,175000,180000
+Oregon,245000,250000
+Pennsylvania,980000,1000000
+Rhode Island,58000,60000
+South Carolina,245000,250000
+South Dakota,39000,40000
+Tennessee,490000,500000
+Texas,1750000,1800000
+Utah,145000,150000
+Vermont,38000,40000
+Virginia,580000,600000
+Washington,980000,1000000
+West Virginia,58000,60000
+Wisconsin,345000,350000
+Wyoming,29000,30000
+Puerto Rico,88000,90000`;
+
+    // --- Merge GDP Data into the GeoJSON ---
+    function mergeGDPData(csvData) {
+      const gdpGrowthByState = {};
+      csvData.forEach(function(row) {
+        if (row.State && row.GDP2022 && row.GDP2024) {
+          const gdp2022 = parseFloat(row.GDP2022);
+          const gdp2024 = parseFloat(row.GDP2024);
+          if (isNaN(gdp2022) || isNaN(gdp2024)) {
+            console.warn(`Invalid GDP numbers for ${row.State}`);
+            return;
+          }
+          // Calculate GDP growth percentage
+          const growth = ((gdp2024 - gdp2022) / gdp2022) * 100;
+          gdpGrowthByState[row.State.trim()] = growth;
+        } else {
+          console.warn("Missing data in CSV row:", row);
+        }
+      });
+      console.log("GDP growth by state:", gdpGrowthByState);
+
+      // Ensure statesData exists
+      if (typeof statesData === 'undefined') {
+        console.error("statesData is not defined. Please check your 'us-states.js' file.");
+        return;
+      }
+      // Merge the GDP growth data into the corresponding GeoJSON features.
+      statesData.features.forEach(function(feature) {
+        const stateName = feature.properties.name;
+        if (gdpGrowthByState.hasOwnProperty(stateName)) {
+          feature.properties.growth = gdpGrowthByState[stateName];
+        } else {
+          console.warn(`No GDP data found for ${stateName}`);
+          feature.properties.growth = 0;
+        }
+      });
+    }
+
+    // --- Parse CSV and Create Map ---
+    Papa.parse(rawCSV, {
+      header: true,
+      skipEmptyLines: true,
+      complete: function(results) {
+        mergeGDPData(results.data);
+        createMap();
+      },
+      error: function(err) {
+        console.error("Error parsing CSV:", err);
+      }
+    });
+
+    // --- Create Map Function ---
+    function createMap() {
+      const map = L.map('map').setView([37.8, -96], 4);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      }).addTo(map);
+
+      // Info Control displaying GDP Growth
+      const info = L.control();
+      info.onAdd = function(map) {
+        this._div = L.DomUtil.create('div', 'info');
+        this.update();
+        return this._div;
+      };
+      info.update = function(props) {
+        const growthStr = props && typeof props.growth === 'number'
+                          ? props.growth.toFixed(2)
+                          : 'N/A';
+        const contents = props
+          ? `<b>${props.name}</b><br/>GDP Growth (2022–2024): ${growthStr}%`
+          : 'Hover over a state';
+        this._div.innerHTML = `<h4>U.S. GDP Growth</h4>${contents}`;
+      };
+      info.addTo(map);
+
+      // Diverging color scheme for GDP Growth:
+      // Highest: ≥ 6% (color: #d53e4f)
+      // Higher: 5%–6% (color: #fc8d59)
+      // High: 4%–5% (color: #fee08b)
+      // Middle: 3%–4% (color: #ffffbf)
+      // Low: 2%–3% (color: #e6f598)
+      // Lower: 1%–2% (color: #99d594)
+      // Lowest: < 1% (color: #3288bd)
+      function getColor(growth) {
+        return growth >= 6 ? '#d53e4f' :
+               growth >= 5 ? '#fc8d59' :
+               growth >= 4 ? '#fee08b' :
+               growth >= 3 ? '#ffffbf' :
+               growth >= 2 ? '#e6f598' :
+               growth >= 1 ? '#99d594' :
+                            '#3288bd';
+      }
+
+      function style(feature) {
+        return {
+          weight: 2,
+          opacity: 1,
+          color: 'white',
+          dashArray: '3',
+          fillOpacity: 0.7,
+          fillColor: getColor(feature.properties.growth)
+        };
+      }
+
+      function highlightFeature(e) {
+        const layer = e.target;
+        layer.setStyle({
+          weight: 5,
+          color: '#666',
+          dashArray: '',
+          fillOpacity: 0.7
+        });
+        layer.bringToFront();
+        info.update(layer.feature.properties);
+      }
+
+      function resetHighlight(e) {
+        geojson.resetStyle(e.target);
+        info.update();
+      }
+
+      function zoomToFeature(e) {
+        map.fitBounds(e.target.getBounds());
+      }
+
+      function onEachFeature(feature, layer) {
+        layer.on({
+          mouseover: highlightFeature,
+          mouseout: resetHighlight,
+          click: zoomToFeature
+        });
+      }
+
+      const geojson = L.geoJson(statesData, {
+        style: style,
+        onEachFeature: onEachFeature
+      }).addTo(map);
+
+      map.attributionControl.addAttribution(
+        'GDP data &copy; <a href="https://en.wikipedia.org/wiki/List_of_U.S._states_and_territories_by_GDP">Wikipedia</a>'
+      );
+
+      // Legend for diverging categories
+      const legend = L.control({position: 'bottomright'});
+      legend.onAdd = function (map) {
+        const div = L.DomUtil.create('div', 'info legend');
+        const labels = [];
+        labels.push('<i style="background:#d53e4f"></i> Highest (≥ 6%)');
+        labels.push('<i style="background:#fc8d59"></i> Higher (5%–6%)');
+        labels.push('<i style="background:#fee08b"></i> High (4%–5%)');
+        labels.push('<i style="background:#ffffbf"></i> Middle (3%–4%)');
+        labels.push('<i style="background:#e6f598"></i> Low (2%–3%)');
+        labels.push('<i style="background:#99d594"></i> Lower (1%–2%)');
+        labels.push('<i style="background:#3288bd"></i> Lowest (< 1%)');
+        div.innerHTML = labels.join('<br>');
+        return div;
+      };
+      legend.addTo(map);
+    }
+  </script>
+
+</body>
+</html>
